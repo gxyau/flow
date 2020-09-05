@@ -1,2 +1,2 @@
-# flow_traders
-Flow Traders Interview problem
+# Flow Traders Interview problem
+Initial repo
