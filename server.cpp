@@ -1,24 +1,5 @@
 //Example code: A simple server side code, which echos back the received message. 
 //Handle multiple socket connections with select and fd_set on Linux 
-/*
-#include <stdio.h> 
-#include <string.h> //strlen 
-#include <stdlib.h> 
-#include <errno.h> 
-#include <unistd.h> //close 
-#include <arpa/inet.h> //close 
-#include <sys/types.h> 
-#include <sys/socket.h> 
-#include <netinet/in.h> 
-#include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros 
-#include <string>
-#include <set>
-#include <vector>
-
-#define TRUE 1 
-#define FALSE 0 
-#define PORT 51717
-*/
 #include <arpa/inet.h> //close 
 #include <chrono>
 #include <cstring>
@@ -162,13 +143,100 @@ void removeUser(int sd) { // sd = socket descrip
     return;
 }
 
-/*
+
 // Helper to execute message orders
-bool createNewOrder() {}
-bool modifyExistingOrder() {}
-void deleteExistingOrder() {}
-void executeTrade() {}
-*/
+void createNewOrder(int sd, char* buffer, Header &header, OrderResponse &orderResponse) {
+    NewOrder newOrder;
+    std::memcpy(&newOrder, buffer, header.payloadSize);
+    Order *order = new Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
+    if (!financialInstruments.count(newOrder.listingId)) {
+        FinancialInstrument *fi = new FinancialInstrument();
+        financialInstruments[newOrder.listingId] = fi;
+    }
+    bool res = financialInstruments[newOrder.listingId]->addOrder(order);
+    // Check if this works
+    orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
+    orderResponse.orderId = order->orderId;
+    orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
+    if (res) {
+        orders[order->orderId] = order;
+        userOrders[sd]->push_back(order->orderId);
+    }
+    // Output to shell
+    std::cout << "Creating new order" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
+    std::cout << "Quantity: " << order->qty << std::endl;
+    std::cout << "Price: " << order->price << std::endl;
+    std::cout << "Side: " << order->side << std::endl;
+    std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+}
+
+void deleteExistingOrder(char* buffer, Header &header) {
+    DeleteOrder deleteOrder;
+    std::memcpy(&deleteOrder, buffer, header.payloadSize);
+    auto it = orders.find(deleteOrder.orderId);
+    if (it == orders.end()) {
+        std::cerr << "Order does not exists! No order(s) deleted." << std::endl;
+        return;
+    }
+    Order *order = it->second;
+    // Output to shell
+    std::cout << "Deleting order" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
+    // Deleting it
+    fi->deleteOrder(order);
+    return;
+}
+
+void modifyExistingOrder(char* buffer, Header &header, OrderResponse &orderResponse) {
+    ModifyOrderQuantity modifyOrderQuantity;
+    std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
+    //todo check for existence (x)
+    auto it = orders.find(modifyOrderQuantity.orderId);
+    if (it == orders.end()) {
+        std::cerr << "Order does not exists! No modification.";
+        return;
+    }
+    Order *order = it->second;
+    // Output to shell, first part
+    std::cout << "Modifying order" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    std::cout << "Old quantity: " << order->qty << std::endl;
+    // Updating
+    FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
+    bool res = fi->modifyOrder(order, modifyOrderQuantity.newQuantity);
+    // Response message
+    orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
+    orderResponse.orderId = order->orderId;
+    orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
+    // Output to shell, second part
+    std::cout << "New quantity: " << modifyOrderQuantity.newQuantity << std::endl;
+    std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+    return;
+}
+
+void executeTrade(char *buffer, Header &header) {
+    Trade trade;
+    std::memcpy(&trade, buffer, header.payloadSize);
+    auto it = orders.find(trade.tradeId);
+    if (it == orders.end()) {
+        std::cerr << "Order " << trade.tradeId << " not found, no transaction" << std::endl;
+        return;
+    }
+    Order *order = orders.find(trade.tradeId)->second;
+    FinancialInstrument fi = *financialInstruments.find(trade.listingId)->second;
+    fi.trade(trade.tradeQuantity, order->side);
+    // Output to shell
+    std::cout << "Trade" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
+    std::cout << "Quantity: " << order->qty << std::endl;
+    std::cout << "Price: " << order->price << std::endl;
+    std::cout << "Side: " << order->side << std::endl;
+    return;
+}
 
 int main(int argc , char *argv[]) { 
 	int opt = TRUE; 
@@ -282,25 +350,6 @@ int main(int argc , char *argv[]) {
 					
                     // HANDLE DISCONNECTED USER
                     removeUser(sd);
-                    /*
-                    for (uint64_t orderId : *userOrders[sd]) {
-                        auto it = orders.find(orderId);
-                        if (it != orders.end()) {
-                            // Output to shell
-                            std::cout << "Deleting order" << std::endl;
-                            std::cout << "Order ID: " << it->second->orderId << std::endl;
-                            FinancialInstrument* fi = financialInstruments.find(it->second->financialInstrumentId)->second;
-                            // Deleting it
-                            fi->deleteOrder(it->second);
-                            std::cout << "b.qty, s.qty: " << fi->buyQty << ", " << fi->sellQty << std::endl;
-                        }
-                    }
-                    // Remove user
-                    auto it = userOrders.find(sd);
-                    delete(it->second);
-                    userOrders.erase(it);
-                    std::cout << std::endl;
-                    */
 
 					//Close the socket and mark as 0 in list for reuse 
 					close( sd ); 
@@ -314,119 +363,40 @@ int main(int argc , char *argv[]) {
                     uint16_t *messageType = (uint16_t*) buffer;
                     std::cout << "Message type: " << *messageType << std::endl;
                     // Initiate order and response
-                    // TODO: move the variables into switch
-                    Order *order;
                     OrderResponse orderResponse;
-                    bool res, reply = false;
+                    bool reply = false;
                     switch(*messageType) { // Switch between message types
-                        case 1: {
-                            NewOrder newOrder;
-                            std::memcpy(&newOrder, buffer, header.payloadSize);
-                            order = new Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
-                            if (!financialInstruments.count(newOrder.listingId)) {
-                                FinancialInstrument *fi = new FinancialInstrument();
-                                financialInstruments[newOrder.listingId] = fi;
-                            }
-                            std::cout << "Current Buy Quantity: " << financialInstruments[newOrder.listingId]->buyQty << std::endl;
-                            std::cout << "Current Sell Quantity: " << financialInstruments[newOrder.listingId]->sellQty << std::endl;
-                            res = financialInstruments[newOrder.listingId]->addOrder(order);
-                            // Check if this works
-                            orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
-                            orderResponse.orderId = order->orderId;
-                            orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
-                            reply = true; // Will send response
-                            if (res) {
-                                orders[order->orderId] = order;
-                                userOrders[sd]->push_back(order->orderId);
-                            }
-                            // Output to shell
-                            std::cout << "Creating new order" << std::endl;
-                            std::cout << "Order ID: " << order->orderId << std::endl;
-                            std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
-                            std::cout << "Quantity: " << order->qty << std::endl;
-                            std::cout << "Price: " << order->price << std::endl;
-                            std::cout << "Side: " << order->side << std::endl;
-                            std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+                        case NewOrder::MESSAGE_TYPE: {
+                            reply = true;
+                            createNewOrder(sd, buffer, header, orderResponse);
                             break;
-                            } 
-                        case 2: {
-                            DeleteOrder deleteOrder;
-                            std::memcpy(&deleteOrder, buffer, header.payloadSize);
-                            auto it = orders.find(deleteOrder.orderId);
-                            if (it == orders.end()) {
-                                std::cerr << "Order does not exists! No order(s) deleted." << std::endl;
-                                break;
                             }
-                            order = it->second;
-                            // Output to shell
-                            std::cout << "Deleting order" << std::endl;
-                            std::cout << "Order ID: " << order->orderId << std::endl;
-                            FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
-                            // Deleting it
-                            fi->deleteOrder(order);
+                        case DeleteOrder::MESSAGE_TYPE: {
+                            deleteExistingOrder(buffer, header);
                             break; 
                             }
-                        case 3: { 
-                            ModifyOrderQuantity modifyOrderQuantity;
-                            std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
-                            //todo check for existence (x)
-                            auto it = orders.find(modifyOrderQuantity.orderId);
-                            if (it == orders.end()) {
-                                std::cerr << "Order does not exists! No modification.";
-                                break;
-                            }
-                            order = it->second;
-                            // Output to shell, first part
-                            std::cout << "Modifying order" << std::endl;
-                            std::cout << "Order ID: " << order->orderId << std::endl;
-                            std::cout << "Old quantity: " << order->qty << std::endl;
-                            // Updating
-                            FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
-                            res = fi->modifyOrder(order, modifyOrderQuantity.newQuantity);
-                            // Response message
-                            orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
-                            orderResponse.orderId = order->orderId;
-                            orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
-                            reply = true; // Will send response
-                            // Output to shell, second part
-                            std::cout << "New quantity: " << modifyOrderQuantity.newQuantity << std::endl;
-                            std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+                        case ModifyOrderQuantity::MESSAGE_TYPE: { 
+                            reply = true;
+                            modifyExistingOrder(buffer, header, orderResponse);
                             break; 
                         }
-                        case 4: {
-                            Trade trade;
-                            std::memcpy(&trade, buffer, header.payloadSize);
-                            auto it = orders.find(trade.tradeId);
-                            if (it == orders.end()) {
-                                std::cerr << "Order " << trade.tradeId << " not found, no transaction" << std::endl;
-                                break;
-                            }
-                            order = orders.find(trade.tradeId)->second;
-                            FinancialInstrument fi = *financialInstruments.find(trade.listingId)->second;
-                            fi.trade(trade.tradeQuantity, order->side);
-                            // Output to shell
-                            std::cout << "Trade" << std::endl;
-                            std::cout << "Order ID: " << order->orderId << std::endl;
-                            std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
-                            std::cout << "Quantity: " << order->qty << std::endl;
-                            std::cout << "Price: " << order->price << std::endl;
-                            std::cout << "Side: " << order->side << std::endl;
+                        case Trade::MESSAGE_TYPE: {
+                            executeTrade(buffer, header);
                             break;
                         }
-                }
-                // Making response message, if needed
-                if (reply) {
-                    char *message = new char[28];
-                    header.payloadSize = 28;
-                    header.sequenceNumber += 1;
-                    header.timestamp = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::system_clock::now().time_since_epoch()).count();
-                    std::memcpy(message, &header, 16);
-                    std::memcpy(message+16, &orderResponse, 12);
-                    send(sd, message, 28, 0);
-                }
-            //send(new_socket , hello , strlen(hello) , 0 ); 
-            std::cout << std::endl;
-            } 
+                    }
+                    // Making response message, if needed
+                    if (reply) {
+                        char *message = new char[28];
+                        header.payloadSize = 28;
+                        header.sequenceNumber += 1;
+                        header.timestamp = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::system_clock::now().time_since_epoch()).count();
+                        std::memcpy(message, &header, 16);
+                        std::memcpy(message+16, &orderResponse, 12);
+                        send(sd, message, 28, 0);
+                    }
+                    std::cout << std::endl;
+                } 
 			} 
 		}
         for(int i : to_erase) {
@@ -435,4 +405,4 @@ int main(int argc , char *argv[]) {
 	} 
 		
 	return 0; 
-} 
+}
