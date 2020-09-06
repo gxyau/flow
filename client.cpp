@@ -36,18 +36,20 @@ int main(int argc, char const *argv[]) {
 		return -1; 
 	}
     // Get message
-    /*
+    while (true) {
     Header header;
     NewOrder newOrder;
     DeleteOrder deleteOrder;
     ModifyOrderQuantity modifyOrderQuantity;
-    uint16_t messageType;
-    uint64_t listingId, orderId, orderQuantity, orderPrice, newQuantity;
+    Trade trade;
+    uint16_t messageType = 0;
+    uint64_t listingId, orderId, tradeId, orderQuantity, orderPrice, newQuantity, tradeQuantity, tradePrice;
     char side, *message;
-    cout << "Insert message type: ";
+    cout << "Insert message type: " << endl;
     cin  >> messageType;
+    cout << "Message type: " << messageType << endl;
     switch (messageType) {
-        case 1: cin >> listingId;
+        case 1: { cin >> listingId;
                 cin >> orderId;
                 cin >> orderQuantity;
                 cin >> orderPrice;
@@ -65,10 +67,11 @@ int main(int argc, char const *argv[]) {
                 header.timestamp      = 1;
                 // Defining message
                 message = new char[51];
-                std::memcpy(message, header, 16);
-                std::memcpy(message+16, newOrder, 35);
+                std::memcpy(message, &header, 16);
+                std::memcpy(message+16, &newOrder, 35);
                 break;
-        case 2: uint64_t orderId;
+                }
+        case 2: { uint64_t orderId;
                 cin >> orderId;
                 deleteOrder.messageType = 2;
                 deleteOrder.orderId     = orderId;
@@ -79,10 +82,11 @@ int main(int argc, char const *argv[]) {
                 header.timestamp      = 1;
                 // Defining message
                 message = new char[26];
-                std::memcpy(message, header, 16);
-                std::memcpy(message+16, newOrder, 10);
+                std::memcpy(message, &header, 16);
+                std::memcpy(message+16, &newOrder, 10);
                 break;
-        case 3: uint64_t orderId, newQuantity;
+                }
+        case 3: { uint64_t orderId, newQuantity;
                 cin >> orderId;
                 cin >> newQuantity;
                 modifyOrderQuantity.messageType = 3;
@@ -95,13 +99,34 @@ int main(int argc, char const *argv[]) {
                 header.sequenceNumber = 0;
                 header.timestamp      = 1;
                 // Defining message
-                std::memcpy(message, header, 16);
-                std::memcpy(message+16, newOrder, 18);
+                std::memcpy(message, &header, 16);
+                std::memcpy(message+16, &newOrder, 18);
                 break;
-        default: cout << "Invalid message type";
-                 break;
+                }
+        case 4: {
+                    cin >> listingId;
+                    cin >> tradeId;
+                    cin >> tradeQuantity;
+                    cin >> tradePrice;
+                    message = new char[50];
+                    trade.listingId = listingId;
+                    trade.tradeId = tradeId;
+                    trade.tradeQuantity = tradeQuantity;
+                    trade.tradePrice = tradePrice;
+                    header.version = 0;
+                    header.payloadSize = 34;
+                    header.sequenceNumber = 0;
+                    header.timestamp = 1;
+                    std::memcpy(message, &header, 16);
+                    std::memcpy(message+16, &trade, 34);
+                    break;
+                }
+        default: {
+                     std::cout << "Oooooooofffffff" << std::endl;
+                     return 0;
+                 }
     }
-    */
+    /*
     Header header;
     header.version        = 0;
     header.payloadSize    = 35;
@@ -117,14 +142,16 @@ int main(int argc, char const *argv[]) {
     char *message = new char[51];
     std::memcpy(message, &header, 16);
     std::memcpy(message+16, &payload, 35);
+    */
     // Sending message
-    for (int i = 0; i < 51; ++i) cout << std::hex << (int) message[i];
+    for (int i = 0; i < header.payloadSize+16; ++i) printf("%02x ", message[i] & 0xff);
     cout << endl;
-    send(sock, message, 51, 0);
+    send(sock, message, header.payloadSize+16, 0);
 	//send(sock , hello , strlen(hello) , 0 ); 
-	printf("Hello message sent\n"); 
+	cout << "Payload size: " << header.payloadSize << endl; 
 	valread = read( sock , buffer, 1024); 
 	printf("%s\n",buffer ); 
+    }
 	return 0; 
 } 
 

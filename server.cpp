@@ -6,6 +6,7 @@
 #include <netinet/in.h> 
 #include <string.h> 
 #include <cstring>
+#include <chrono>
 #include <iostream>
 #include <unordered_map>
 #include "message_specs.h"
@@ -17,7 +18,7 @@ int BUY_THRESHOLD = 20, SELL_THRESHOLD = 15;
 
 
 struct Order {
-        int orderId, financialInstrumentId, qty, price;
+        uint64_t orderId, financialInstrumentId, qty, price;
         char side;
         Order() : orderId(), financialInstrumentId(), qty(), price(), side() {}
         Order(int oId, int fiId, int q, int p, char s) : orderId(oId), financialInstrumentId(fiId), qty(q), price(p), side(s) {}
@@ -30,7 +31,8 @@ class FinancialInstrument {
     public:
         int netPos = 0, buyQty = 0, sellQty = 0;
         
-        int getHypotheticalBuy() const { return std::max(buyQty, netPos + buyQty);
+        int getHypotheticalBuy() const { 
+            return std::max(buyQty, netPos + buyQty);
         }
 
         int getHypotheticalSell() const {
@@ -39,11 +41,17 @@ class FinancialInstrument {
 
         bool addOrder(Order &order) {
             switch (order.side) {
-                case 'B': if (order.qty + buyQty > BUY_THRESHOLD) return false;
-                        buyQty += order.qty;    
+                case 'B': buyQty += order.qty;
+                        if (buyQty - netPos > BUY_THRESHOLD) {
+                            buyQty -= order.qty;
+                            return false;
+                        }
                         break;
-                case 'S': if (order.qty + sellQty > SELL_THRESHOLD) return false;
-                        sellQty += order.qty;
+                case 'S': sellQty += order.qty;
+                        if (sellQty - netPos > SELL_THRESHOLD) {
+                            sellQty -= order.qty;
+                            return false;
+                        }
                         break;
             }
             orders[order.orderId] = &order;
@@ -61,6 +69,8 @@ class FinancialInstrument {
                         order.qty  = newQty;
                         break;
             }
+            // todo change order inside map (x)
+            orders[order.orderId]->qty = newQty;
             return true;
         }
 
@@ -76,7 +86,7 @@ class FinancialInstrument {
         }
 
         void trade(int tradeQty, char side) {
-            netPos += tradeQty * (side = 'B' ? 1 : -1);
+            netPos += tradeQty * (side = 'S' ? 1 : -1);
         }
 };
 
@@ -123,56 +133,87 @@ int main(int argc, char const *argv[]) {
 		exit(EXIT_FAILURE); 
 	} 
     // Read header
-    Header header;
-	valread = read( new_socket , buffer, 16); 
-    std::memcpy(&header, buffer, 16);
-    valread = read(new_socket, buffer, header.payloadSize);
-    // Get message type
-    uint16_t *messageType = (uint16_t*) buffer;
-    // Initiate order
-    Order order;
-    switch(*messageType) {
-        case 1: { 
-                    NewOrder newOrder;
-                    std::memcpy(&newOrder, buffer, header.payloadSize);
-                    order = Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
-                    if (!financialInstruments.count(newOrder.listingId)) {
-                        FinancialInstrument *fi = new FinancialInstrument();
-                        financialInstruments[newOrder.listingId] = fi;
+    while (true) {
+        Header header;
+	    valread = read( new_socket , buffer, 16);
+        if (!valread) continue;
+            std::cout << valread << " bytes read" << std::endl;
+        std::memcpy(&header, buffer, 16);
+        valread = read(new_socket, buffer, header.payloadSize);
+        // Get message type
+        uint16_t *messageType = (uint16_t*) buffer;
+        // Initiate order and response
+        // TODO: move the variables into switch
+        Order order;
+        OrderResponse orderResponse;
+        bool res, reply = false;
+        switch(*messageType) { // Switch between message types
+            case 1: {
+                        NewOrder newOrder;
+                        std::memcpy(&newOrder, buffer, header.payloadSize);
+                        order = Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
+                        if (!financialInstruments.count(newOrder.listingId)) {
+                            FinancialInstrument *fi = new FinancialInstrument();
+                            financialInstruments[newOrder.listingId] = fi;
+                        }
+                        res = financialInstruments[newOrder.listingId]->addOrder(order);
+                        // Check if this works
+                        orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
+                        orderResponse.orderId = order.orderId;
+                        orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
+                        reply = true; // Will send response
+                        break;
                     }
-                    financialInstruments[newOrder.listingId]->addOrder(order);
-                    break; 
-                }
-        case 2: { 
-                    DeleteOrder deleteOrder;
-                    std::memcpy(&deleteOrder, buffer, header.payloadSize);
-                    order = *orders.find(deleteOrder.orderId)->second;
-                    FinancialInstrument fi = *financialInstruments.find(order.financialInstrumentId)->second;
-                    fi.deleteOrder(order);
-                    break; 
-                }
-        case 3: { 
-                    ModifyOrderQuantity modifyOrderQuantity;
-                    std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
-                    order = *orders.find(modifyOrderQuantity.orderId)->second;
-                    FinancialInstrument fi = *financialInstruments.find(order.financialInstrumentId)->second;
-                    fi.modifyOrder(order, modifyOrderQuantity.newQuantity);
-                    break; 
-                }
-        case 4: {
-                    Trade trade;
-                    std::memcpy(&trade, buffer, header.payloadSize);
-                    order = *orders.find(trade.tradeId)->second;
-                    FinancialInstrument fi = *financialInstruments.find(trade.listingId)->second;
-                    fi.trade(trade.tradeQuantity, order.side);
-                    break;
-                }
+            case 2: {
+                        DeleteOrder deleteOrder;
+                        std::memcpy(&deleteOrder, buffer, header.payloadSize);
+                        order = *orders.find(deleteOrder.orderId)->second;
+                        FinancialInstrument fi = *financialInstruments.find(order.financialInstrumentId)->second;
+                        fi.deleteOrder(order);
+                        break; 
+                    }
+            case 3: { 
+                        ModifyOrderQuantity modifyOrderQuantity;
+                        std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
+                        //todo check for existence (x)
+                        auto it = orders.find(modifyOrderQuantity.orderId);
+                        if (it == orders.end()) break;
+                        order = *it->second;
+                        FinancialInstrument fi = *financialInstruments.find(order.financialInstrumentId)->second;
+                        res = fi.modifyOrder(order, modifyOrderQuantity.newQuantity);
+                        // Response message
+                        orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
+                        orderResponse.orderId = order.orderId;
+                        orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
+                        reply = true; // Will send response
+                        break; 
+                    }
+            case 4: {
+                        Trade trade;
+                        std::memcpy(&trade, buffer, header.payloadSize);
+                        order = *orders.find(trade.tradeId)->second;
+                        FinancialInstrument fi = *financialInstruments.find(trade.listingId)->second;
+                        fi.trade(trade.tradeQuantity, order.side);
+                        break;
+                    }
+        }
+        std::cout << "Financial instruments is empty: " << financialInstruments.empty() << std::endl;
+        std::cout << "Orders is empty: " << orders.empty() << std::endl;
+	    printf("%s\n",buffer );
+        // Making response message, if needed
+        if (reply) {
+            std::cout << "Choo choo MF" << std::endl;
+            char *message = new char[28];
+            header.payloadSize = 28;
+            header.sequenceNumber += 1;
+            header.timestamp = std::chrono::duration_cast<std::chrono::nanoseconds> (std::chrono::system_clock::now().time_since_epoch()).count();
+            std::memcpy(message, &header, 16);
+            std::memcpy(message+16, &orderResponse, 12);
+            send(new_socket, message, 28, 0);
+        }
+    	//send(new_socket , hello , strlen(hello) , 0 ); 
+	    printf("Hello message sent\n"); 
     }
-    std::cout << "Financial instruments is empty: " << financialInstruments.empty() << std::endl;
-    std::cout << "Orders is empty: " << orders.empty() << std::endl;
-	printf("%s\n",buffer ); 
-	//send(new_socket , hello , strlen(hello) , 0 ); 
-	printf("Hello message sent\n"); 
 	return 0; 
 } 
 
