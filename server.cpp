@@ -171,6 +171,7 @@ void createNewOrder(int sd, char* buffer, Header &header, OrderResponse &orderRe
     std::cout << "Side: " << order->side << std::endl;
     std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
 }
+
 void deleteExistingOrder(char* buffer, Header &header) {
     DeleteOrder deleteOrder;
     std::memcpy(&deleteOrder, buffer, header.payloadSize);
@@ -188,6 +189,7 @@ void deleteExistingOrder(char* buffer, Header &header) {
     fi->deleteOrder(order);
     return;
 }
+
 void modifyExistingOrder(char* buffer, Header &header, OrderResponse &orderResponse) {
     ModifyOrderQuantity modifyOrderQuantity;
     std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
@@ -361,26 +363,24 @@ int main(int argc , char *argv[]) {
                     uint16_t *messageType = (uint16_t*) buffer;
                     std::cout << "Message type: " << *messageType << std::endl;
                     // Initiate order and response
-                    // TODO: move the variables into switch
-                    Order *order;
                     OrderResponse orderResponse;
-                    bool res, reply = false;
+                    bool reply = false;
                     switch(*messageType) { // Switch between message types
-                        case 1: {
+                        case NewOrder::MESSAGE_TYPE: {
                             reply = true;
                             createNewOrder(sd, buffer, header, orderResponse);
                             break;
                             }
-                        case 2: {
+                        case DeleteOrder::MESSAGE_TYPE: {
                             deleteExistingOrder(buffer, header);
                             break; 
                             }
-                        case 3: { 
+                        case ModifyOrderQuantity::MESSAGE_TYPE: { 
                             reply = true;
                             modifyExistingOrder(buffer, header, orderResponse);
                             break; 
                         }
-                        case 4: {
+                        case Trade::MESSAGE_TYPE: {
                             executeTrade(buffer, header);
                             break;
                         }
