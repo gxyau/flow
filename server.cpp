@@ -89,7 +89,6 @@ class FinancialInstrument {
                         }
                         break;
             }
-            // todo change order inside map (x)
             order->qty = newQty;
             std::cout << "New quantity: " << order->qty << std::endl;
             return true;
@@ -132,7 +131,6 @@ void removeUser(int sd) { // sd = socket descrip
             FinancialInstrument* fi = financialInstruments.find(it->second->financialInstrumentId)->second;
             // Deleting it
             fi->deleteOrder(it->second);
-            std::cout << "b.qty, s.qty: " << fi->buyQty << ", " << fi->sellQty << std::endl;
         }
     }
     // Remove user
