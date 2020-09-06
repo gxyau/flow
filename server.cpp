@@ -188,8 +188,34 @@ void deleteExistingOrder(char* buffer, Header &header) {
     fi->deleteOrder(order);
     return;
 }
+void modifyExistingOrder(char* buffer, Header &header, OrderResponse &orderResponse) {
+    ModifyOrderQuantity modifyOrderQuantity;
+    std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
+    //todo check for existence (x)
+    auto it = orders.find(modifyOrderQuantity.orderId);
+    if (it == orders.end()) {
+        std::cerr << "Order does not exists! No modification.";
+        return;
+    }
+    Order *order = it->second;
+    // Output to shell, first part
+    std::cout << "Modifying order" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    std::cout << "Old quantity: " << order->qty << std::endl;
+    // Updating
+    FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
+    bool res = fi->modifyOrder(order, modifyOrderQuantity.newQuantity);
+    // Response message
+    orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
+    orderResponse.orderId = order->orderId;
+    orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
+    // Output to shell, second part
+    std::cout << "New quantity: " << modifyOrderQuantity.newQuantity << std::endl;
+    std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+    return;
+}
+
 /*
-void modifyExistingOrder() {}
 void executeTrade() {}
 */
 
@@ -397,6 +423,9 @@ int main(int argc , char *argv[]) {
                             break; 
                             }
                         case 3: { 
+                            reply = true;
+                            modifyExistingOrder(buffer, header, orderResponse);
+                            /*
                             ModifyOrderQuantity modifyOrderQuantity;
                             std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
                             //todo check for existence (x)
@@ -421,6 +450,7 @@ int main(int argc , char *argv[]) {
                             // Output to shell, second part
                             std::cout << "New quantity: " << modifyOrderQuantity.newQuantity << std::endl;
                             std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+                            */
                             break; 
                         }
                         case 4: {
