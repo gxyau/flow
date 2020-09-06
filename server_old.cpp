@@ -1,17 +1,28 @@
 // Server side C/C++ program to demonstrate Socket programming 
-#include <unistd.h> 
-#include <stdio.h> 
-#include <sys/socket.h> 
-#include <stdlib.h> 
-#include <netinet/in.h> 
-#include <string.h> 
-#include <cstring>
+#include <arpa/inet.h> //close 
 #include <chrono>
+#include <cstring>
 #include <iostream>
+#include <stdio.h> 
+#include <errno.h>
+#include <netinet/in.h> 
+#include <stdlib.h> 
+#include <string.h> // strlen
+#include <string>
+#include <set>
+#include <sys/socket.h> 
+#include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros
+#include <unistd.h> // close
 #include <unordered_map>
+#include <vector>
 #include "message_specs.h"
-#define PORT 8080 
+
 using std::unordered_map;
+
+#define TRUE 1     
+#define FALSE 0     
+#define PORT 51717
+
 
 // Threshold
 int BUY_THRESHOLD = 20, SELL_THRESHOLD = 15;
@@ -39,47 +50,47 @@ class FinancialInstrument {
             return std::max(sellQty, sellQty - netPos);
         }
 
-        bool addOrder(Order &order) {
-            switch (order.side) {
-                case 'B': buyQty += order.qty;
+        bool addOrder(Order *order) {
+            switch (order->side) {
+                case 'B': buyQty += order->qty;
                         if (buyQty - netPos > BUY_THRESHOLD) {
-                            buyQty -= order.qty;
+                            buyQty -= order->qty;
                             return false;
                         }
                         break;
-                case 'S': sellQty += order.qty;
+                case 'S': sellQty += order->qty;
                         if (sellQty - netPos > SELL_THRESHOLD) {
-                            sellQty -= order.qty;
+                            sellQty -= order->qty;
                             return false;
                         }
                         break;
             }
-            orders[order.orderId] = &order;
+            orders[order->orderId] = order;
             return true;
         }
 
-        bool modifyOrder(Order &order, int newQty) {
-            switch (order.side) {
-                case 'B': if (newQty - order.qty + buyQty > BUY_THRESHOLD) return false;
-                        buyQty   += newQty - order.qty;
-                        order.qty = newQty;
+        bool modifyOrder(Order *order, int newQty) {
+            switch (order->side) {
+                case 'B': if (newQty - order->qty + buyQty > BUY_THRESHOLD) return false;
+                        buyQty   += newQty - order->qty;
+                        order->qty = newQty;
                         break;
-                case 'S': if (newQty - order.qty + sellQty > SELL_THRESHOLD) return false;
-                        sellQty   += newQty - order.qty;
-                        order.qty  = newQty;
+                case 'S': if (newQty - order->qty + sellQty > SELL_THRESHOLD) return false;
+                        sellQty   += newQty - order->qty;
+                        order->qty  = newQty;
                         break;
             }
             // todo change order inside map (x)
-            orders[order.orderId]->qty = newQty;
+            orders[order->orderId]->qty = newQty;
             return true;
         }
 
-        void deleteOrder(Order &order) {
-            auto it = orders.find(order.orderId);
+        void deleteOrder(Order *order) {
+            auto it = orders.find(order->orderId);
             if (it != orders.end()) {
-                switch(order.side) {
-                    case 'B': buyQty  -= order.qty;
-                    case 'S': sellQty -= order.qty;
+                switch(order->side) {
+                    case 'B': buyQty  -= order->qty;
+                    case 'S': sellQty -= order->qty;
                 }
                 orders.erase(it);
             }
@@ -99,8 +110,10 @@ int main(int argc, char const *argv[]) {
 	int opt = 1; 
 	int addrlen = sizeof(address); 
 	char buffer[1024] = {0}; 
-	//char *hello = "Hello from server"; 
-	
+    
+    // Reading threshold, if any
+    if (argc >= 3) BUY_THRESHOLD = std::atoi(argv[2]);
+    if (argc >= 4) SELL_THRESHOLD = std::atoi(argv[3]);
 	// Creating socket file descriptor 
 	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) { 
 		perror("socket failed"); 
@@ -137,38 +150,58 @@ int main(int argc, char const *argv[]) {
         Header header;
 	    valread = read( new_socket , buffer, 16);
         if (!valread) continue;
-            std::cout << valread << " bytes read" << std::endl;
+        std::cout << valread << " bytes read" << std::endl;
         std::memcpy(&header, buffer, 16);
         valread = read(new_socket, buffer, header.payloadSize);
         // Get message type
         uint16_t *messageType = (uint16_t*) buffer;
+        std::cout << "Message type: " << *messageType << std::endl;
         // Initiate order and response
         // TODO: move the variables into switch
-        Order order;
+        Order *order;
         OrderResponse orderResponse;
         bool res, reply = false;
         switch(*messageType) { // Switch between message types
             case 1: {
                         NewOrder newOrder;
                         std::memcpy(&newOrder, buffer, header.payloadSize);
-                        order = Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
+                        order = new Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
                         if (!financialInstruments.count(newOrder.listingId)) {
                             FinancialInstrument *fi = new FinancialInstrument();
                             financialInstruments[newOrder.listingId] = fi;
                         }
+                        std::cout << "Current Buy Quantity: " << financialInstruments[newOrder.listingId]->buyQty << std::endl;
+                        std::cout << "Current Sell Quantity: " << financialInstruments[newOrder.listingId]->sellQty << std::endl;
                         res = financialInstruments[newOrder.listingId]->addOrder(order);
                         // Check if this works
                         orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
-                        orderResponse.orderId = order.orderId;
+                        orderResponse.orderId = order->orderId;
                         orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
                         reply = true; // Will send response
+                        // Output to shell
+                        std::cout << "Creating new order" << std::endl;
+                        std::cout << "Order ID: " << order->orderId << std::endl;
+                        std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
+                        std::cout << "Quantity: " << order->qty << std::endl;
+                        std::cout << "Price: " << order->price << std::endl;
+                        std::cout << "Side: " << order->side << std::endl;
+                        std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
                         break;
                     }
             case 2: {
                         DeleteOrder deleteOrder;
                         std::memcpy(&deleteOrder, buffer, header.payloadSize);
-                        order = *orders.find(deleteOrder.orderId)->second;
-                        FinancialInstrument fi = *financialInstruments.find(order.financialInstrumentId)->second;
+                        auto it = orders.find(deleteOrder.orderId);
+                        if (it == orders.end()) {
+                            std::cout << "Order does not exists!" << std::endl;
+                            break;
+                        }
+                        order = it->second;
+                        // Output to shell
+                        std::cout << "Deleting order" << std::endl;
+                        std::cout << "Order ID: " << order->orderId << std::endl;
+                        FinancialInstrument fi = *financialInstruments.find(order->financialInstrumentId)->second;
+                        // Deleting it
                         fi.deleteOrder(order);
                         break; 
                     }
@@ -177,32 +210,47 @@ int main(int argc, char const *argv[]) {
                         std::memcpy(&modifyOrderQuantity, buffer, header.payloadSize);
                         //todo check for existence (x)
                         auto it = orders.find(modifyOrderQuantity.orderId);
-                        if (it == orders.end()) break;
-                        order = *it->second;
-                        FinancialInstrument fi = *financialInstruments.find(order.financialInstrumentId)->second;
+                        if (it == orders.end()) {
+                            std::cout << "Order does not exists!";
+                            break;
+                        }
+                        order = it->second;
+                        // Output to shell, first part
+                        std::cout << "Modifying order" << std::endl;
+                        std::cout << "Order ID: " << order->orderId << std::endl;
+                        std::cout << "Old quantity: " << order->qty << std::endl;
+                        // Updating
+                        FinancialInstrument fi = *financialInstruments.find(order->financialInstrumentId)->second;
                         res = fi.modifyOrder(order, modifyOrderQuantity.newQuantity);
                         // Response message
                         orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
-                        orderResponse.orderId = order.orderId;
+                        orderResponse.orderId = order->orderId;
                         orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
                         reply = true; // Will send response
+                        // Output to shell, second part
+                        std::cout << "New quantity: " << modifyOrderQuantity.newQuantity << std::endl;
+                        std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
                         break; 
                     }
             case 4: {
                         Trade trade;
                         std::memcpy(&trade, buffer, header.payloadSize);
-                        order = *orders.find(trade.tradeId)->second;
+                        auto it = orders.find(trade.tradeId);
+                        order = orders.find(trade.tradeId)->second;
                         FinancialInstrument fi = *financialInstruments.find(trade.listingId)->second;
-                        fi.trade(trade.tradeQuantity, order.side);
+                        fi.trade(trade.tradeQuantity, order->side);
+                        // Output to shell
+                        std::cout << "Trade" << std::endl;
+                        std::cout << "Order ID: " << order->orderId << std::endl;
+                        std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
+                        std::cout << "Quantity: " << order->qty << std::endl;
+                        std::cout << "Price: " << order->price << std::endl;
+                        std::cout << "Side: " << order->side << std::endl;
                         break;
                     }
         }
-        std::cout << "Financial instruments is empty: " << financialInstruments.empty() << std::endl;
-        std::cout << "Orders is empty: " << orders.empty() << std::endl;
-	    printf("%s\n",buffer );
         // Making response message, if needed
         if (reply) {
-            std::cout << "Choo choo MF" << std::endl;
             char *message = new char[28];
             header.payloadSize = 28;
             header.sequenceNumber += 1;
@@ -212,7 +260,7 @@ int main(int argc, char const *argv[]) {
             send(new_socket, message, 28, 0);
         }
     	//send(new_socket , hello , strlen(hello) , 0 ); 
-	    printf("Hello message sent\n"); 
+        std::cout << std::endl;
     }
 	return 0; 
 } 

@@ -7,7 +7,7 @@
 #include <cstring>
 #include <iostream>
 #include "message_specs.h"
-#define PORT 8080 
+#define PORT 51717
 using std::cin;
 using std::cout;
 using std::endl;
@@ -83,7 +83,7 @@ int main(int argc, char const *argv[]) {
                 // Defining message
                 message = new char[26];
                 std::memcpy(message, &header, 16);
-                std::memcpy(message+16, &newOrder, 10);
+                std::memcpy(message+16, &deleteOrder, 10);
                 break;
                 }
         case 3: { uint64_t orderId, newQuantity;
@@ -100,7 +100,7 @@ int main(int argc, char const *argv[]) {
                 header.timestamp      = 1;
                 // Defining message
                 std::memcpy(message, &header, 16);
-                std::memcpy(message+16, &newOrder, 18);
+                std::memcpy(message+16, &modifyOrderQuantity, 18);
                 break;
                 }
         case 4: {
@@ -109,6 +109,7 @@ int main(int argc, char const *argv[]) {
                     cin >> tradeQuantity;
                     cin >> tradePrice;
                     message = new char[50];
+                    trade.messageType = 4;
                     trade.listingId = listingId;
                     trade.tradeId = tradeId;
                     trade.tradeQuantity = tradeQuantity;
@@ -149,8 +150,6 @@ int main(int argc, char const *argv[]) {
     send(sock, message, header.payloadSize+16, 0);
 	//send(sock , hello , strlen(hello) , 0 ); 
 	cout << "Payload size: " << header.payloadSize << endl; 
-	valread = read( sock , buffer, 1024); 
-	printf("%s\n",buffer ); 
     }
 	return 0; 
 } 
