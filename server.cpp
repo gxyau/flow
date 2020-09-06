@@ -215,9 +215,26 @@ void modifyExistingOrder(char* buffer, Header &header, OrderResponse &orderRespo
     return;
 }
 
-/*
-void executeTrade() {}
-*/
+void executeTrade(char *buffer, Header &header) {
+    Trade trade;
+    std::memcpy(&trade, buffer, header.payloadSize);
+    auto it = orders.find(trade.tradeId);
+    if (it == orders.end()) {
+        std::cerr << "Order " << trade.tradeId << " not found, no transaction" << std::endl;
+        return;
+    }
+    Order *order = orders.find(trade.tradeId)->second;
+    FinancialInstrument fi = *financialInstruments.find(trade.listingId)->second;
+    fi.trade(trade.tradeQuantity, order->side);
+    // Output to shell
+    std::cout << "Trade" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
+    std::cout << "Quantity: " << order->qty << std::endl;
+    std::cout << "Price: " << order->price << std::endl;
+    std::cout << "Side: " << order->side << std::endl;
+    return;
+}
 
 int main(int argc , char *argv[]) { 
 	int opt = TRUE; 
