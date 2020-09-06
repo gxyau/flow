@@ -1,24 +1,5 @@
 //Example code: A simple server side code, which echos back the received message. 
 //Handle multiple socket connections with select and fd_set on Linux 
-/*
-#include <stdio.h> 
-#include <string.h> //strlen 
-#include <stdlib.h> 
-#include <errno.h> 
-#include <unistd.h> //close 
-#include <arpa/inet.h> //close 
-#include <sys/types.h> 
-#include <sys/socket.h> 
-#include <netinet/in.h> 
-#include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros 
-#include <string>
-#include <set>
-#include <vector>
-
-#define TRUE 1 
-#define FALSE 0 
-#define PORT 51717
-*/
 #include <arpa/inet.h> //close 
 #include <chrono>
 #include <cstring>
@@ -162,11 +143,53 @@ void removeUser(int sd) { // sd = socket descrip
     return;
 }
 
-/*
+
 // Helper to execute message orders
-bool createNewOrder() {}
-bool modifyExistingOrder() {}
-void deleteExistingOrder() {}
+void createNewOrder(int sd, char* buffer, Header &header, OrderResponse &orderResponse) {
+    NewOrder newOrder;
+    std::memcpy(&newOrder, buffer, header.payloadSize);
+    Order *order = new Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
+    if (!financialInstruments.count(newOrder.listingId)) {
+        FinancialInstrument *fi = new FinancialInstrument();
+        financialInstruments[newOrder.listingId] = fi;
+    }
+    bool res = financialInstruments[newOrder.listingId]->addOrder(order);
+    // Check if this works
+    orderResponse.messageType = OrderResponse::MESSAGE_TYPE;
+    orderResponse.orderId = order->orderId;
+    orderResponse.status = res ? OrderResponse::Status::ACCEPTED : OrderResponse::Status::REJECTED;
+    if (res) {
+        orders[order->orderId] = order;
+        userOrders[sd]->push_back(order->orderId);
+    }
+    // Output to shell
+    std::cout << "Creating new order" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    std::cout << "Listing ID: " << order->financialInstrumentId << std::endl;
+    std::cout << "Quantity: " << order->qty << std::endl;
+    std::cout << "Price: " << order->price << std::endl;
+    std::cout << "Side: " << order->side << std::endl;
+    std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+}
+void deleteExistingOrder(char* buffer, Header &header) {
+    DeleteOrder deleteOrder;
+    std::memcpy(&deleteOrder, buffer, header.payloadSize);
+    auto it = orders.find(deleteOrder.orderId);
+    if (it == orders.end()) {
+        std::cerr << "Order does not exists! No order(s) deleted." << std::endl;
+        return;
+    }
+    Order *order = it->second;
+    // Output to shell
+    std::cout << "Deleting order" << std::endl;
+    std::cout << "Order ID: " << order->orderId << std::endl;
+    FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
+    // Deleting it
+    fi->deleteOrder(order);
+    return;
+}
+/*
+void modifyExistingOrder() {}
 void executeTrade() {}
 */
 
@@ -320,6 +343,9 @@ int main(int argc , char *argv[]) {
                     bool res, reply = false;
                     switch(*messageType) { // Switch between message types
                         case 1: {
+                            reply = true;
+                            createNewOrder(sd, buffer, header, orderResponse);
+                            /*
                             NewOrder newOrder;
                             std::memcpy(&newOrder, buffer, header.payloadSize);
                             order = new Order(newOrder.orderId, newOrder.listingId, newOrder.orderQuantity, newOrder.orderPrice, newOrder.side);
@@ -347,9 +373,12 @@ int main(int argc , char *argv[]) {
                             std::cout << "Price: " << order->price << std::endl;
                             std::cout << "Side: " << order->side << std::endl;
                             std::cout << "Result: " << (res ? "ACCEPTED" : "REJECTED") << std::endl;
+                            */
                             break;
                             } 
                         case 2: {
+                            deleteExistingOrder(buffer, header);
+                                    /*
                             DeleteOrder deleteOrder;
                             std::memcpy(&deleteOrder, buffer, header.payloadSize);
                             auto it = orders.find(deleteOrder.orderId);
@@ -364,6 +393,7 @@ int main(int argc , char *argv[]) {
                             FinancialInstrument* fi = financialInstruments.find(order->financialInstrumentId)->second;
                             // Deleting it
                             fi->deleteOrder(order);
+                            */
                             break; 
                             }
                         case 3: { 
