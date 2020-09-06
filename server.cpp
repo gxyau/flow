@@ -471,6 +471,8 @@ int main(int argc , char *argv[]) {
                             break; 
                         }
                         case 4: {
+                            executeTrade(buffer, header);
+                            /*
                             Trade trade;
                             std::memcpy(&trade, buffer, header.payloadSize);
                             auto it = orders.find(trade.tradeId);
@@ -488,6 +490,8 @@ int main(int argc , char *argv[]) {
                             std::cout << "Quantity: " << order->qty << std::endl;
                             std::cout << "Price: " << order->price << std::endl;
                             std::cout << "Side: " << order->side << std::endl;
+                            break;
+                            */
                             break;
                         }
                 }
